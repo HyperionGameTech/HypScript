@@ -1,0 +1,22 @@
+#include <Core/Reflection/ScriptObjectFunctions.hpp>
+
+namespace Hyperion {
+
+void (*ScriptObjectFunctions::IncScriptObjectRef)(ObjectBase*) = nullptr;
+void (*ScriptObjectFunctions::DecScriptObjectRef)(ObjectBase*) = nullptr;
+
+ScriptObjectResource* (*ScriptObjectFunctions::CreateScriptObjectResource_DotNet)(ObjectBase*, const memory::SharedPtr<dotnet::ManagedClass, threading::AtomicVar<unsigned int, void>>&) = nullptr;
+ScriptObjectResource* (*ScriptObjectFunctions::CreateScriptObjectResource_Script)(ScriptInstance*, ObjectBase*) = nullptr;
+void (*ScriptObjectFunctions::DestroyScriptObjectResource)(ScriptObjectResource*) = nullptr;
+
+void (*ScriptObjectFunctions::ReleaseDotNetGCHandle)(ObjectBase*) = nullptr;
+
+unsigned int (*ScriptObjectFunctions::GetScriptLanguageMask)(const ScriptObjectResource*) = nullptr;
+dotnet::ManagedObject* (*ScriptObjectFunctions::GetManagedObject)(const ScriptObjectResource*) = nullptr;
+
+memory::SharedPtr<dotnet::ManagedClass, threading::AtomicVar<unsigned int, void>> (*ScriptObjectFunctions::ManagedClassSharedThis)(dotnet::ManagedClass*) = nullptr;
+void (*ScriptObjectFunctions::ManagedClassNewManagedObject)(dotnet::ManagedClass*, void* contextPtr, void (*copyCallback)(void*, void*, unsigned int), dotnet::ObjectReference* outRef) = nullptr;
+
+memory::Pool* (*ScriptObjectFunctions::GetScriptPool)() = nullptr;
+
+} // namespace Hyperion

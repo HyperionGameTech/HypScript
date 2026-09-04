@@ -1,0 +1,23 @@
+#include <Core/Logging/LogChannels.hpp>
+#include <Core/Logging/Logger.hpp>
+
+namespace Hyperion {
+
+#if HYP_ANDROID
+CORE_API struct AAssetManager* g_androidAssetManager;
+#endif // HYP_ANDROID
+
+CORE_API HYP_DEFINE_LOG_CHANNEL(Core);
+
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Misc, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Temp, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Config, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Object, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Profile, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Math, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(IO, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Net, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Threading, Core);
+CORE_API HYP_DEFINE_LOG_SUBCHANNEL(Memory, Core);
+
+} // namespace Hyperion

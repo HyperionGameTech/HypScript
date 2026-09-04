@@ -1,0 +1,140 @@
+cmake_minimum_required(VERSION 3.5)
+cmake_policy(SET CMP0091 NEW)
+
+set(BUILD_NAME hyperion-core)
+
+project(${BUILD_NAME} CXX C)
+
+message(STATUS "Building ${BUILD_NAME} library with compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+
+link_directories(${CMAKE_THIRD_PARTY_LIBRARY_DIRECTORY})
+
+set(CMAKE_BUILD_PARALLEL_LEVEL 8)
+set(CMAKE_CXX_STANDARD 20 CACHE STRING "C++ standard to be used")
+set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "Configurations to build" FORCE)
+set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
+
+set(COMMON_LIBRARIES
+    ${COMMON_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
+)
+
+if(HYPERION_ENGINE)
+  message(STATUS "Building hyperion-core for the engine, setting HYPERION_ENGINE=1 in Core.")
+  add_definitions(-DHYPERION_ENGINE=1)
+endif()
+
+message(STATUS "HYP_PLATFORM_NAME: ${HYP_PLATFORM_NAME}")
+
+if(HYP_PLATFORM_NAME STREQUAL "Android")
+  message(STATUS "Building for Android, setting HYP_ANDROID=1 in Core.")
+  add_definitions(-DHYP_ANDROID=1)
+endif()
+
+find_package(Threads REQUIRED)
+find_package(ZLIB)
+
+if(MSVC)
+  set(CMAKE_CXX_FLAGS "/Zc:preprocessor /MD /O2 /Zi /MP /Zc:__cplusplus")
+  add_definitions("/DNOMINMAX")
+else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O3 -fpermissive")
+endif()
+
+# if Win32, link with DbgHelp
+if(HYP_PLATFORM_NAME STREQUAL "Windows")
+  set(COMMON_LIBRARIES ${COMMON_LIBRARIES} DbgHelp dwmapi)
+elseif(HYP_ANDROID)
+  set(COMMON_LIBRARIES ${COMMON_LIBRARIES} android log)
+endif()
+
+if(NOT IOS)
+  if(APPLE)
+    set(CURL_LIBRARY /opt/homebrew/opt/curl/lib/libcurl.dylib)
+    set(CURL_INCLUDE_DIR /opt/homebrew/opt/curl/include)
+  endif()
+
+  find_package(CURL)
+endif()
+
+if(CURL_FOUND)
+  message(STATUS "CURL found at ${CURL_INCLUDE_DIRS}")
+
+  add_definitions(-DHYP_CURL=1)
+
+  include_directories(SYSTEM ${CURL_INCLUDE_DIRS})
+  set(COMMON_LIBRARIES ${COMMON_LIBRARIES} ${CURL_LIBRARIES})
+endif()
+
+if(ZLIB_FOUND)
+  message(STATUS "Zlib found at ${ZLIB_INCLUDE_DIRS}")
+
+  add_definitions(-DHYP_ZLIB=1)
+
+  include_directories(SYSTEM ${ZLIB_INCLUDE_DIRS})
+  set(COMMON_LIBRARIES ${COMMON_LIBRARIES} ${ZLIB_LIBRARIES})
+elseif(EXISTS "${SUBMODULES_DIR}/zlib/CMakeLists.txt")
+  message(STATUS "Zlib submodule found")
+
+  add_definitions(-DHYP_ZLIB=1)
+
+  set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  set(ZLIB_BUILD_MINIZIP OFF CACHE BOOL "" FORCE)
+  set(ZLIB_INSTALL OFF CACHE BOOL "" FORCE)
+
+  include_directories(SYSTEM ${SUBMODULES_DIR}/zlib PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/zlib")
+  add_subdirectory(${SUBMODULES_DIR}/zlib ${CMAKE_CURRENT_BINARY_DIR}/zlib)
+
+  set(COMMON_LIBRARIES
+        ${COMMON_LIBRARIES}
+        zlibstatic
+    )
+endif()
+
+file(GLOB_RECURSE SOURCES "*.cpp" "*.cc" "*.c")
+file(GLOB_RECURSE HEADERS "*.h" "*.hpp")
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "${BUILD_NAME} Code" FILES ${SOURCES} ${HEADERS})
+
+# only include generated code if we're building the engine
+if(HYPERION_ENGINE)
+  message(STATUS "Adding generated code to core library since HYPERION_ENGINE is set.")
+
+  set(HYP_GENERATED_DIR "${CMAKE_SOURCE_DIR}/Generated/Core")
+  file(GLOB REFLECTION_GENERATED_SOURCES "${HYP_GENERATED_DIR}/*.cpp")
+  source_group(TREE ${HYP_GENERATED_DIR} PREFIX "Generated Code" FILES ${REFLECTION_GENERATED_SOURCES})
+
+  set(SOURCES "${SOURCES}" ${REFLECTION_GENERATED_SOURCES})
+  set(HEADERS "${HEADERS}" ${REFLECTION_GENERATED_HEADERS})
+
+  message(STATUS "Reflected sources: ${REFLECTION_GENERATED_SOURCES}")
+
+endif()
+
+include_directories(SYSTEM
+    ${Vulkan_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../External/ThirdParty/Source
+)
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Engine
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Generated/Core
+)
+
+message(STATUS "Configuring hyperion-core in ${CMAKE_CURRENT_SOURCE_DIR}")
+
+set(SOURCES ${SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/../../External/ThirdParty/Source/tlsf/tlsf.c)
+
+if(HYP_BUILD_STATIC)
+  set(HYP_BUILD_CORE_LIBRARY_STATIC 1)
+endif()
+
+if(HYP_BUILD_CORE_LIBRARY_STATIC)
+  add_library(${BUILD_NAME} STATIC ${SOURCES} ${HEADERS})
+else()
+  add_library(${BUILD_NAME} SHARED ${SOURCES} ${HEADERS})
+endif()
+
+target_compile_definitions(${BUILD_NAME} PRIVATE HYP_BUILD_CORE=1)
+
+target_link_libraries(${BUILD_NAME} PRIVATE ${COMMON_LIBRARIES})

@@ -1,0 +1,219 @@
+/*!
+ *  @author: The Hyperion Contributors
+ *  @date 2016-2026
+ *  @licence MIT
+*/
+
+#include <Core/Net/WebSocket.hpp>
+
+#include <Core/Threading/TaskSystem.hpp>
+#include <Core/Threading/Threads.hpp>
+
+#include <Core/Logging/Logger.hpp>
+#include <Core/Logging/LogChannels.hpp>
+
+#include <Core/Profiling/ProfileScope.hpp>
+
+#if defined(HYP_CURL) && HYP_CURL
+#include <curl/curl.h>
+#endif
+
+namespace Hyperion {
+
+namespace net {
+
+#pragma region WebSocketThread
+
+class CORE_API WebSocketThread final : public TaskThread
+{
+public:
+    WebSocketThread(WebSocket* ws)
+        : TaskThread(NAME("WebSocketThread")),
+          m_ws(ws)
+    {
+    }
+
+    ~WebSocketThread() override = default;
+
+private:
+    WebSocket* m_ws;
+};
+
+#pragma endregion WebSocketThread
+
+#pragma region WebSocket
+
+WebSocket::WebSocket(const String &url)
+    : m_url(url)
+{
+#ifdef HYP_CURL
+    m_thread = MakeUnique<WebSocketThread>(this);
+    static_cast<WebSocketThread*>(m_thread.Get())->Start();
+
+    m_thread->GetScheduler().Enqueue([this]()
+    {
+        HYP_SCOPE;
+
+        HYP_LOG(Net, Info, "WebSocket thread started");
+
+        WebSocketThreadProc();
+    }, TaskEnqueueFlags::FIRE_AND_FORGET);
+#else
+    HYP_LOG(Net, Error, "CURL is not enabled in this build");
+#endif
+}
+
+WebSocket::WebSocket(WebSocket &&other) noexcept
+    : m_url(std::move(other.m_url)),
+      m_thread(std::move(other.m_thread))
+{
+}
+
+WebSocket &WebSocket::operator=(WebSocket &&other) noexcept
+{
+    if (this != &other)
+    {
+        m_url = std::move(other.m_url);
+        m_thread = std::move(other.m_thread);
+    }
+
+    return *this;
+}
+
+WebSocket::~WebSocket()
+{
+    if (m_thread != nullptr)
+    {
+        if (m_thread->IsRunning())
+        {
+            m_thread->Stop();
+        }
+
+        if (m_thread->CanJoin())
+        {
+            m_thread->Join();
+        }
+    }
+}
+
+void WebSocket::WebSocketThreadProc()
+{
+    HYP_SCOPE;
+
+    HYP_LOG(Net, Info, "WebSocket thread started");
+
+#ifdef HYP_CURL
+    CURL *curl = curl_easy_init();
+
+    auto Ping = [=](CURL *curl, const char *payload)
+    {
+        size_t sent;
+        CURLcode result = curl_ws_send(curl, payload, strlen(payload), &sent, 0, CURLWS_PING);
+
+        return (int)result;
+    };
+
+    auto Pong = [=](CURL *curl, const char *payload)
+    {
+        size_t rlen;
+        const struct curl_ws_frame *meta;
+        char buffer[256];
+
+        CURLcode result = curl_ws_recv(curl, buffer, sizeof(buffer), &rlen, &meta);
+
+        if (!result)
+        {
+            if (meta->flags & CURLWS_PONG)
+            {
+                int same = 0;
+                fprintf(stderr, "ws: got PONG back\n");
+
+                if (rlen == strlen(payload))
+                {
+                    if (!memcmp(payload, buffer, rlen))
+                    {
+                        fprintf(stderr, "ws: got the same payload back\n");
+                        same = 1;
+                    }
+                }
+
+                if (!same)
+                {
+                    fprintf(stderr, "ws: did NOT get the same payload back\n");
+                }
+            }
+            else
+            {
+                fprintf(stderr, "recv_pong: got %u bytes rflags %x\n", (int)rlen, meta->flags);
+            }
+        }
+
+        fprintf(stderr, "ws: curl_ws_recv returned %u, received %u\n", (unsigned int)result, (unsigned int)rlen);
+
+        return (int)result;
+    };
+
+    auto OnData = [=](CURL *curl)
+    {
+        size_t rlen;
+        const struct curl_ws_frame *meta;
+        char buffer[256];
+
+        return curl_ws_recv(curl, buffer, sizeof(buffer), &rlen, &meta);
+    };
+
+    auto Close = [=](CURL *curl)
+    {
+        size_t sent;
+        (void)curl_ws_send(curl, "", 0, &sent, 0, CURLWS_CLOSE);
+    };
+
+    auto WebSocketMain = [=](CURL *curl)
+    {
+        while (true)
+        {
+            OnData(curl);
+
+            if (Ping(curl, "ping"))
+            {
+                return;
+            }
+
+            if (Pong(curl, "pong"))
+            {
+                return;
+            }
+
+            ThreadSleep(100);
+        }
+
+        Close(curl);
+    };
+
+    if (curl)
+    {
+        curl_easy_setopt(curl, CURLOPT_URL, m_url.Data());
+        curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);
+        CURLcode res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            HYP_LOG(Net, Error, "cURL error: {}", curl_easy_strerror(res));
+        }
+        else
+        {
+            HYP_LOG(Net, Info, "cURL request successful");
+
+            WebSocketMain(curl);
+        }
+
+        curl_easy_cleanup(curl);
+    }
+#endif // HYP_CURL
+}
+
+#pragma endregion WebSocket
+
+} // namespace net
+} // namespace Hyperion
+
